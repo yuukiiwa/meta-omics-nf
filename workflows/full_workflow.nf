@@ -252,8 +252,11 @@ if (params.process_dna && params.dna_list){
 ========================================================================================
 */
 include { FASTP_UMI } from '../modules/fastp_umi.nf'
+include { FASTPLONG } from '../modules/fastplong.nf'
 include { STAR } from '../modules/star.nf'
+include { MINIMAP_HUMAN } from '../modules/minimap_human.nf'
 include { RIBOFILTER } from '../modules/rRNAfilter.nf'
+include { MINIMAP_RRNA } from '../modules/minimap_rRNA.nf'
 include { UMITOOLS_DEDUP as UMITOOLS_DEDUP_PANALIGN } from '../modules/umitools_dedup.nf'
 include { UMITOOLS_DEDUP as UMITOOLS_DEDUP_DMND } from '../modules/umitools_dedup.nf'
 include { UMITOOLS_CLUST } from '../modules/umitools_clust.nf'
@@ -262,6 +265,7 @@ include { KRAKEN2_RNA } from '../modules/kraken_rna.nf'
 include { KRAKEN2_DNA } from '../modules/kraken_dna.nf'
 include { BRACKEN } from '../modules/bracken.nf'
 include { PANALIGN_RNA } from '../modules/panalign_rna.nf'
+include { PANALIGN_DIRECTRNA } from '../modules/panalign_directrna.nf'
 include { PANALIGN_DNA } from '../modules/panalign_dna.nf'
 include { PANALIGN_DNA_SPIKES } from '../modules/panalign_dna_spikes.nf'
 include { MEGAHIT_DNA } from '../modules/megahit_dna.nf'
@@ -291,30 +295,57 @@ include { TRF_TAXA_RNA } from '../modules/transfer_taxa_rna.nf'
 
 workflow FULL {
     if ( params.process_rna ){
-        // 1. Read QC and add umi to headers using fastp
-        FASTP_UMI( ch_rna_input )
-        ch_rna_input = FASTP_UMI.out.reads
+        if ( params.process_nanopore ){
+            // 1. Read QC and add umi to headers using fastp
+            FASTPLONG( ch_rna_input )
+            ch_rna_input = FASTPLONG.out.reads
 
-        // 2. remove human host RNA and 3. remove rRNAs
-        if ( params.decont_off ){
-            if ( params.remove_rRNA ){
-                RIBOFILTER(params.ribokmers, ch_rna_input)
-                ch_rna_decont = RIBOFILTER.out.reads
+            // 2. remove human host RNA and 3. remove rRNAs
+            if ( params.decont_off ){
+                if ( params.remove_rRNA ){
+                    MINIMAP_RRNA(params.ribokmers, ch_rna_input) //can try params.rrna_ref_fa
+                    ch_rna_decont = MINIMAP_RRNA.out.reads
+                } else {
+                    ch_rna_decont = ch_rna_input
+                }
             } else {
-                ch_rna_decont = ch_rna_input
+                MINIMAP_HUMAN(params.human_ref_fa, ch_rna_input)
+                if ( params.remove_rRNA ){
+                    MINIMAP_RRNA(params.ribokmers, ch_rna_input) //can try params.rrna_ref_fa
+                    ch_rna_decont = MINIMAP_RRNA.out.reads
+                } else {
+                    ch_rna_decont = MINIMAP_HUMAN.out.microbereads
+                }
             }
-        } else {
-            STAR(params.star_index, ch_rna_input)
-            if ( params.remove_rRNA ){
-                RIBOFILTER(params.ribokmers, STAR.out.microbereads)
-                ch_rna_decont = RIBOFILTER.out.reads
+
+            // 4. Panalign to pangenome IHSMGC database
+            PANALIGN_DIRECTRNA(params.pangenome_path, ch_rna_decont)
+        }else{
+            // 1. Read QC and add umi to headers using fastp
+            FASTP_UMI( ch_rna_input )
+            ch_rna_input = FASTP_UMI.out.reads
+
+            // 2. remove human host RNA and 3. remove rRNAs
+            if ( params.decont_off ){
+                if ( params.remove_rRNA ){
+                    RIBOFILTER(params.ribokmers, ch_rna_input)
+                    ch_rna_decont = RIBOFILTER.out.reads
+                } else {
+                    ch_rna_decont = ch_rna_input
+                }
             } else {
-                ch_rna_decont = STAR.out.microbereads
+                STAR(params.star_index, ch_rna_input)
+                if ( params.remove_rRNA ){
+                    RIBOFILTER(params.ribokmers, STAR.out.microbereads)
+                    ch_rna_decont = RIBOFILTER.out.reads
+                } else {
+                    ch_rna_decont = STAR.out.microbereads
+                }
             }
+
+            // 4. Panalign to pangenome IHSMGC database
+            PANALIGN_RNA(params.pangenome_path, ch_rna_decont)
         }
-
-        // 4. Panalign to pangenome IHSMGC database
-        PANALIGN_RNA(params.pangenome_path, ch_rna_decont)
         // 5. Translated annotation - sam format -> outfmt 101
         DMND_RNA(params.dmnddb, params.dmndfai, PANALIGN_RNA.out.unaligned) //need to add samtools to docker container
         // 6. Cluster reads that failed to align in steps 4 and 5 using Vsearch
