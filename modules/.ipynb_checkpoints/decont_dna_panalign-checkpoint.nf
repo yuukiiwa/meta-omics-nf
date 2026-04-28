@@ -1,7 +1,6 @@
 // decontamination or removal of human reads from metagenomes
 
 process DECONT_DNA_PANALIGN {
-        debug=true
 	label "process_high"
 	tag "${sample_id}"
 	publishDir "${params.outdir}/decont/DNA", mode: 'copy'

@@ -234,13 +234,12 @@ if (params.process_dna && params.dna_list){
 	.splitCsv(header: true)
 	.map { row ->
 	// Recursively find files matching the sample name pattern
-	def read1_files = file("${params.dna_reads}/${row.id}*1.{fastq,fq}.gz")
-	def read2_files = file("${params.dna_reads}/${row.id}*2.{fastq,fq}.gz")
+	def read1_files = file("${params.dna_reads}/**/*${row.id}*1.{fastq,fq}.gz")
+	def read2_files = file("${params.dna_reads}/**/*${row.id}*2.{fastq,fq}.gz")
 	// Take the first match (or add validation)
 	tuple(row.id, tuple(read1_files[0], read2_files[0]))
 	}
 	.set{ ch_dna_input }
-    ch_dna_input.view()
 } else if (params.process_dna && !params.dna_list){
 	Channel.fromFilePairs( [params.dna_reads + '/**{R,.,_}{1,2}*{fastq,fastq.gz,fq,fq.gz}'], checkIfExists:true ).set{ ch_dna_input }
 }
@@ -264,8 +263,6 @@ include { BRACKEN } from '../modules/bracken.nf'
 include { PANALIGN_RNA } from '../modules/panalign_rna.nf'
 include { PANALIGN_DNA } from '../modules/panalign_dna.nf'
 include { PANALIGN_DNA_SPIKES } from '../modules/panalign_dna_spikes.nf'
-include { MEGAHIT_DNA } from '../modules/megahit_dna.nf'
-include { SPADES_DNA } from '../modules/spades_dna.nf'
 include { VSEARCH } from '../modules/vsearch_unaligned.nf'
 include { DMND_RNA } from '../modules/dmnd_rna.nf'
 include { DMND_DNA } from '../modules/dmnd_dna.nf'
@@ -351,6 +348,7 @@ workflow FULL {
     }
     
     if ( params.process_dna ){
+        
         if ( params.decont_off ) {
             ch_dna_decont = ch_dna_input
         } else {
@@ -358,10 +356,6 @@ workflow FULL {
             DECONT_DNA_PANALIGN(params.human_pangenome_path, DECONT_DNA.out.reads)
             ch_dna_decont = DECONT_DNA_PANALIGN.out.reads
         }
-
-        // assemble mags
-        MEGAHIT_DNA(ch_dna_decont)
-        SPADES_DNA(ch_dna_decont)
 
         KRAKEN2_DNA(params.kraken2db, ch_dna_decont)
         BRACKEN(params.kraken2db, params.readlength, KRAKEN2_DNA.out.k2tax)
