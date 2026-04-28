@@ -6,3 +6,4 @@ pipeline*
 .Rhistory
 testing/
 testing*
+.ipynb_checkpoints*
